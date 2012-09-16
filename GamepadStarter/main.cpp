@@ -1,17 +1,29 @@
-#include "Gamepad.h"
-#include <iostream>
-#include <string>
+#define WIN32_LEAN_AND_MEAN
+
+#include <windows.h>
 #include <shellapi.h>
 #include <objidl.h>
 #include <gdiplus.h>
+#include <string>
+
+#include "Gamepad.h"
 
 using namespace std;
 using namespace Gdiplus;
 
 #pragma comment (lib, "Gdiplus.lib")
 
-void ExecuteApp(wstring workingDir, wstring exeName, wstring arguments) {
-	wstring fullPath = workingDir + L"/" + exeName;
+typedef struct t_path {
+	char button[30];
+	char dir[256];
+	char exe[50];
+};
+
+struct t_path paths[512];
+int nr_paths;
+
+void ExecuteApp(string workingDir, string exeName, string arguments) {
+	string fullPath = workingDir + "/" + exeName;
 
 	SHELLEXECUTEINFO execInfo = {0};
 	execInfo.cbSize = sizeof(SHELLEXECUTEINFO);
@@ -65,26 +77,60 @@ void ShutdownSystem() {
 		SHTDN_REASON_FLAG_PLANNED);
 }
 
-void SampleControllerState(Gamepad* controller) {
+void ReadPaths() {
+	nr_paths = 0;
+
+	FILE *file;
+	fopen_s(&file, "paths.cfg", "r");
+
+	char buffer[1024];
+	char seps[] = ",\n";
+	char *next_token;
+
+	while (fgets(buffer, 1024, file)) {
+		strcpy_s(paths[nr_paths].button, 30, strtok_s(buffer, seps, &next_token));
+		strcpy_s(paths[nr_paths].dir, 256, strtok_s(NULL, seps, &next_token));
+		strcpy_s(paths[nr_paths].exe, 50, strtok_s(NULL, seps, &next_token));
+
+		nr_paths++;
+	}
+
+	fclose(file);
+}
+
+void SampleControllerState(HWND hWnd, Gamepad* controller) {
 	if (controller->IsConnected()) {
-		if (controller->GetState().Gamepad.wButtons & XINPUT_GAMEPAD_A) {
-			ExecuteApp(L"C:/Program Files (x86)/SQUARE ENIX/Deus Ex Human Revolution", L"dxhr.exe", L"");
-		}
+		WORD buttonState = controller->GetState().Gamepad.wButtons;
 
-		if (controller->GetState().Gamepad.wButtons & XINPUT_GAMEPAD_B) {
-			ExecuteApp(L"C:/Program Files (x86)/Electronic Arts/Crytek/Crysis 2/bin32", L"Crysis2.exe", L"");
-		}
+		for (int i = 0; i < nr_paths; i++) {
+			t_path path = paths[i];
 
-		if (controller->GetState().Gamepad.wButtons & XINPUT_GAMEPAD_X) {
-			ExecuteApp(L"C:/Program Files (x86)/Codemasters/DiRT 3", L"dirt3.exe", L"");
-		}
+			string button = path.button;
+			string workingDir = path.dir;
+			string exeName = path.exe;
 
-		if (controller->GetState().Gamepad.wButtons & XINPUT_GAMEPAD_Y) {
-			ExecuteApp(L"C:/Windows/system32", L"notepad.exe", L"");
-		}
-
-		if (controller->GetState().Gamepad.wButtons & XINPUT_GAMEPAD_BACK) {
-			ShutdownSystem();
+			if ((button.compare("BUTTON_DPAD_UP") == 0 && (buttonState & XINPUT_GAMEPAD_DPAD_UP)) ||
+				(button.compare("BUTTON_DPAD_DOWN") == 0 && (buttonState & XINPUT_GAMEPAD_DPAD_DOWN)) ||
+				(button.compare("BUTTON_DPAD_LEFT") == 0 && (buttonState & XINPUT_GAMEPAD_DPAD_LEFT)) ||
+				(button.compare("BUTTON_DPAD_RIGHT") == 0 && (buttonState & XINPUT_GAMEPAD_DPAD_RIGHT)) ||
+				(button.compare("BUTTON_START") == 0 && (buttonState & XINPUT_GAMEPAD_START)) ||
+				(button.compare("BUTTON_BACK") == 0 && (buttonState & XINPUT_GAMEPAD_BACK)) ||
+				(button.compare("BUTTON_LEFT_THUMB") == 0 && (buttonState & XINPUT_GAMEPAD_LEFT_THUMB)) ||
+				(button.compare("BUTTON_RIGHT_THUMB") == 0 && (buttonState & XINPUT_GAMEPAD_RIGHT_THUMB)) ||
+				(button.compare("BUTTON_LEFT_SHOULDER") == 0 && (buttonState & XINPUT_GAMEPAD_LEFT_SHOULDER)) ||
+				(button.compare("BUTTON_RIGHT_SHOULDER") == 0 && (buttonState & XINPUT_GAMEPAD_RIGHT_SHOULDER)) ||
+				(button.compare("BUTTON_A") == 0 && (buttonState & XINPUT_GAMEPAD_A)) ||
+				(button.compare("BUTTON_B") == 0 && (buttonState & XINPUT_GAMEPAD_B)) ||
+				(button.compare("BUTTON_X") == 0 && (buttonState & XINPUT_GAMEPAD_X)) ||
+				(button.compare("BUTTON_Y") == 0 && (buttonState & XINPUT_GAMEPAD_Y))) {
+				if (workingDir.compare("SHUTDOWN") == 0 && exeName.compare("SHUTDOWN") == 0) {
+					ShutdownSystem();
+				} else {
+					ShowWindow(hWnd, SW_MINIMIZE);
+					ExecuteApp(workingDir, exeName, "");
+					ShowWindow(hWnd, SW_RESTORE);
+				}
+			}
 		}
 	}
 }
@@ -102,6 +148,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 		case WM_CREATE:
 			GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
+			ReadPaths();
+
 			return 0;
 		case WM_PAINT:
 			hdc = BeginPaint(hWnd, &ps);
@@ -110,7 +158,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 			return 0;
 		case WM_TIMER:
-			SampleControllerState(controller);
+			SampleControllerState(hWnd, controller);
 
 			return 0;
 		case WM_DESTROY:
@@ -127,7 +175,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 INT WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, PSTR, INT iCmdShow)
 {
 	WNDCLASS wndClass = {0};
-	wndClass.lpszClassName = TEXT("GamepadStarter");
+	wndClass.lpszClassName = "GamepadStarter";
 	wndClass.lpfnWndProc = WndProc;
 	wndClass.hInstance = hInstance;
 	wndClass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
