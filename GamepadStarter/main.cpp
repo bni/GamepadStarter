@@ -144,7 +144,14 @@ void ReadPaths() {
 
 	while (fgets(buffer, LINE_BUFFER_SIZE, file)) {
 		strcpy_s(paths[nr_paths].button, MAX_BUTTON_IDENT, strtok_s(buffer, seps, &next_token));
-		strcpy_s(path_buffer, _MAX_PATH, strtok_s(NULL, seps, &next_token));
+
+		char *read_path = strtok_s(NULL, seps, &next_token);
+
+		if (read_path != NULL) {
+			strcpy_s(path_buffer, _MAX_PATH, read_path);
+		} else {
+			strcpy_s(path_buffer, _MAX_PATH, "empty");
+		}
 
 		_splitpath_s(path_buffer, drive, _MAX_DRIVE, dir, _MAX_DIR, fname, _MAX_FNAME, ext, _MAX_EXT);
 
